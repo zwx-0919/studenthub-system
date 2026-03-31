@@ -1,0 +1,22 @@
+package com.it.zwx.studenthub_system.utils;
+
+public class ThreadLocalUtil {
+
+    //提供ThreadLocal对象
+    private static final ThreadLocal THREAD_LOCAL = new ThreadLocal();
+
+    //根据键获取值,ThreadLocal可以存储任意类型的数据
+    public static <T> T get(){
+        return (T) THREAD_LOCAL.get();
+    }
+
+    //存储键值对
+    public static void set(Object value){
+        THREAD_LOCAL.set(value);
+    }
+
+    //清除ThreadLocal 防止内存泄露
+    public static void remove(){
+        THREAD_LOCAL.remove();
+    }
+}
