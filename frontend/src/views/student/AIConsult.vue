@@ -21,7 +21,12 @@
     <div class="ai-input-section">
       <div class="input-container">
         <div class="input-header">
-          <h3 class="input-title">💬 请描述您的问题</h3>
+          <div class="input-header-top">
+            <h3 class="input-title">💬 请描述您的问题</h3>
+            <button class="action-btn" @click="startNewSession" :disabled="thinking" title="开启新会话">
+              新会话
+            </button>
+          </div>
           <div class="quick-questions">
             <span class="quick-label">快捷提问：</span>
             <div class="quick-buttons">
@@ -36,12 +41,13 @@
               </button>
             </div>
           </div>
+          <div class="session-tip">当前会话内支持多轮追问，例如“那周三呢”“这个考试地点在哪”。</div>
         </div>
         
         <div class="textarea-wrapper">
           <textarea 
             v-model="question" 
-            placeholder="例如：我下周有哪些考试？明天的课程在哪上课？最近有什么重要的截止日期？"
+            placeholder="例如：我下周有哪些考试？明天的课程在哪上课？最近有什么重要通知？"
             :disabled="thinking"
             @keydown.enter.exact.prevent="ask"
             rows="4"
@@ -89,7 +95,10 @@
     <!-- 历史记录 -->
     <div class="history-section">
       <div class="section-header">
-        <h2 class="section-title">📁 历史对话记录</h2>
+        <div>
+          <h2 class="section-title">📁 历史对话记录</h2>
+          <p class="section-subtitle">按会话展示，支持连续追问</p>
+        </div>
         <div class="section-actions">
           <button 
             class="action-btn" 
@@ -122,44 +131,34 @@
         </div>
       </div>
       
-      <div v-if="list.length > 0" class="history-list">
-        <div v-for="item in list" :key="item.id" class="history-item">
-          <div class="question-card">
-            <div class="card-header">
-              <div class="avatar">Q</div>
-              <div class="card-info">
-                <div class="card-title">您的问题</div>
-                <div class="card-time">{{ formatTime(item.createTime) }}</div>
-              </div>
+      <div v-if="chatSessions.length > 0" class="history-list chat-list">
+        <div v-for="session in chatSessions" :key="session.sessionId" class="session-card">
+          <div class="session-card-header">
+            <div>
+              <div class="session-title">会话 {{ session.sessionIndex }}</div>
+              <div class="session-meta">{{ session.items.length }} 条消息 · {{ formatTime(session.items[0]?.createTime) }}</div>
             </div>
-            <div class="card-content">{{ item.question }}</div>
+            <button class="small-btn" @click="useSession(session.sessionId)">继续此会话</button>
           </div>
-          
-          <div class="answer-card">
-            <div class="card-header">
-              <div class="avatar ai">AI</div>
-              <div class="card-info">
-                <div class="card-title">AI 助手回答</div>
-                <div class="card-time">{{ formatTime(item.updateTime) }}</div>
+          <div class="chat-thread">
+            <template v-for="item in session.items" :key="item.id">
+              <div class="chat-row user-row">
+                <div class="chat-bubble user-bubble">
+                  <div class="bubble-label">你</div>
+                  <div class="bubble-text">{{ item.question }}</div>
+                </div>
               </div>
-            </div>
-            <div class="card-content">{{ item.answer }}</div>
-            <div class="card-footer">
-              <button class="small-btn" title="复制回答" @click="copyToClipboard(item.answer)">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                </svg>
-                复制
-              </button>
-              <button class="small-btn" title="重新提问" @click="question = item.question; ask()">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M23 4v6h-6"></path>
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                </svg>
-                重新提问
-              </button>
-            </div>
+              <div class="chat-row ai-row">
+                <div class="chat-bubble ai-bubble">
+                  <div class="bubble-label">AI</div>
+                  <div class="bubble-text">{{ item.answer }}</div>
+                  <div class="bubble-footer">
+                    <span>{{ formatTime(item.createTime) }}</span>
+                    <button class="small-btn ghost" title="复制回答" @click="copyToClipboard(item.answer)">复制</button>
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
       </div>
@@ -170,23 +169,47 @@
         <p>开始与 AI 助手对话，它会帮助您解答学习生活中的问题</p>
       </div>
     </div>
-  </div>
+        </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import request from "@/utils/request";
 
 const question = ref("");
 const list = ref([]);
 const thinking = ref(false);
+const sessionId = ref(localStorage.getItem("ai-consult-session-id") || "");
 const quickQuestions = ref([
   "我下周有哪些考试？",
   "明天的课程安排是什么？",
   "最近有什么重要通知？",
-  "图书馆的开放时间是？"
+  "我这周的请假状态怎么样？"
 ]);
+
+const currentSession = () => sessionId.value || "default";
+
+const groupBySession = (items) => {
+  const map = new Map();
+  const order = [];
+  items.forEach((item) => {
+    const sid = item.sessionId || "default";
+    if (!map.has(sid)) {
+      map.set(sid, []);
+      order.push(sid);
+    }
+    map.get(sid).push(item);
+  });
+
+  return order.map((sid, idx) => ({
+    sessionId: sid,
+    sessionIndex: idx + 1,
+    items: map.get(sid).sort((a, b) => new Date(a.createTime) - new Date(b.createTime)),
+  }));
+};
+
+const chatSessions = computed(() => groupBySession(list.value));
 
 // 格式化时间
 const formatTime = (time) => {
@@ -225,6 +248,19 @@ const copyToClipboard = async (text) => {
   }
 };
 
+// 生成新会话
+const startNewSession = () => {
+  sessionId.value = window.crypto?.randomUUID ? window.crypto.randomUUID().replace(/-/g, "") : `${Date.now()}${Math.random().toString(16).slice(2)}`;
+  localStorage.setItem("ai-consult-session-id", sessionId.value);
+  ElMessage.success("已开启新会话");
+};
+
+const useSession = (sid) => {
+  sessionId.value = sid || "";
+  localStorage.setItem("ai-consult-session-id", sessionId.value);
+  ElMessage.success("已切换到该会话");
+};
+
 // 加载历史记录
 const load = async () => {
   try {
@@ -232,6 +268,10 @@ const load = async () => {
       params: { current: 1, size: 30 } 
     });
     list.value = res.data?.records || [];
+    if (sessionId.value && !list.value.some((x) => x.sessionId === sessionId.value) && list.value.length > 0) {
+      sessionId.value = list.value[0].sessionId || "";
+      if (sessionId.value) localStorage.setItem("ai-consult-session-id", sessionId.value);
+    }
   } catch (error) {
     console.error("加载历史记录失败:", error);
   }
@@ -249,8 +289,9 @@ const ask = async () => {
   thinking.value = true;
   
   try {
+    if (!sessionId.value) startNewSession();
     const res = await request.post("/api/student/ai/ask", 
-      { question: q }, 
+      { question: q, sessionId: currentSession() }, 
       { timeout: 60000 }
     );
     
@@ -258,6 +299,10 @@ const ask = async () => {
     if (created) {
       // 添加到列表开头，并过滤掉可能重复的记录
       list.value = [created, ...list.value.filter((x) => x.id !== created.id)];
+      if (created.sessionId) {
+        sessionId.value = created.sessionId;
+        localStorage.setItem("ai-consult-session-id", created.sessionId);
+      }
     }
     
     question.value = "";
@@ -291,6 +336,8 @@ const clearHistory = async () => {
     // 这里应该调用清空接口，如果没有就只清空本地
     // await request.delete("/api/student/ai/clear");
     list.value = [];
+    sessionId.value = "";
+    localStorage.removeItem("ai-consult-session-id");
     ElMessage.success("已清空对话记录");
   } catch {
     // 用户取消
@@ -438,6 +485,15 @@ onMounted(load);
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.session-tip {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(106, 85, 255, 0.06);
+  color: #6a55ff;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .quick-label {
@@ -680,6 +736,12 @@ textarea {
   gap: 16px;
 }
 
+.section-subtitle {
+  margin: 6px 0 0;
+  color: #888;
+  font-size: 13px;
+}
+
 .section-title {
   font-size: 20px;
   font-weight: 600;
@@ -737,19 +799,104 @@ textarea {
 .history-list {
   display: flex;
   flex-direction: column;
+  gap: 20px;
+}
+
+.chat-list {
   gap: 24px;
 }
 
-.history-item {
+.session-card {
+  border-radius: 20px;
+  padding: 20px;
+  border: 1px solid rgba(106, 85, 255, 0.08);
+  background: rgba(248, 247, 255, 0.7);
+}
+
+.session-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.session-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.session-meta {
+  font-size: 12px;
+  color: #888;
+  margin-top: 4px;
+}
+
+.chat-thread {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+}
+
+.chat-row {
+  display: flex;
+}
+
+.user-row {
+  justify-content: flex-end;
+}
+
+.ai-row {
+  justify-content: flex-start;
+}
+
+.chat-bubble {
+  max-width: 78%;
+  border-radius: 18px;
+  padding: 14px 16px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+}
+
+.user-bubble {
+  background: rgba(106, 85, 255, 0.1);
+  border: 1px solid rgba(106, 85, 255, 0.12);
+}
+
+.ai-bubble {
+  background: white;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.bubble-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6a55ff;
+  margin-bottom: 6px;
+}
+
+.bubble-text {
+  font-size: 15px;
+  line-height: 1.7;
+  color: #333;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bubble-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #999;
 }
 
 .question-card,
 .answer-card {
   border-radius: 20px;
-  padding: 24px;
+  padding: 20px 22px;
   transition: all 0.3s ease;
 }
 
@@ -781,7 +928,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .avatar {
@@ -825,13 +972,13 @@ textarea {
   color: #333;
   white-space: pre-wrap;
   word-break: break-word;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .card-footer {
   display: flex;
   gap: 8px;
-  padding-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid rgba(0, 0, 0, 0.05);
 }
 
@@ -851,6 +998,11 @@ textarea {
   &:hover {
     background: rgba(106, 85, 255, 0.08);
     color: #6a55ff;
+  }
+  
+  &.ghost {
+    background: transparent;
+    border-color: rgba(106, 85, 255, 0.18);
   }
   
   svg {

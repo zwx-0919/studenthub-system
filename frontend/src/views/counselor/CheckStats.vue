@@ -1,5 +1,32 @@
 <template>
   <div class="checkin-dashboard">
+    <el-card v-if="warnings.length" class="warn-card" shadow="never">
+      <template #header>
+        <span class="warn-title">⚠️ 本周学业预警（打卡/学习时长未达标）</span>
+      </template>
+      <el-table :data="warnings" size="small" stripe>
+        <el-table-column prop="studentName" label="学生" width="120" />
+        <el-table-column prop="className" label="班级" min-width="140" />
+        <el-table-column prop="weeklyCheckCount" label="本周打卡次数" width="120" />
+        <el-table-column prop="weeklyDurationMinutes" label="本周学习时长(分钟)" width="160" />
+      </el-table>
+    </el-card>
+
+    <el-card class="overview-card" shadow="never">
+      <template #header>
+        <div class="overview-header">
+          <div class="overview-title">学习打卡可视化概览</div>
+          <div class="overview-meta">
+            <span class="rate-label">当前筛选范围打卡率</span>
+            <span class="rate-value">{{ formatPercent(overview?.checkRate ?? 0) }}</span>
+          </div>
+        </div>
+      </template>
+      <div class="overview-body">
+        <div ref="trendRef" class="trend-chart"></div>
+      </div>
+    </el-card>
+
     <el-card class="main-card" shadow="never">
       <template #header>
         <div class="card-header">
@@ -132,17 +159,22 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { onMounted, ref, shallowRef, nextTick } from "vue";
+import * as echarts from "echarts";
 import { Search, ZoomIn, Loading } from '@element-plus/icons-vue';
 import request from "@/utils/request";
 
 const rows = ref([]);
 const loading = ref(false);
 const classOptions = ref([]);
+const overview = ref(null);
 const query = ref({
   classId: undefined,
   dates: []
 });
+
+const trendRef = ref(null);
+const trendChart = shallowRef(null);
 
 // 图片预览相关
 const dialogVisible = ref(false);
@@ -179,12 +211,66 @@ const load = async () => {
   }
 };
 
+const loadOverview = async () => {
+  try {
+    const params = {
+      current: 1,
+      size: 1,
+      classId: query.value.classId || undefined,
+      startDate: query.value.dates?.[0] || undefined,
+      endDate: query.value.dates?.[1] || undefined
+    };
+    const res = await request.get("/api/counselor/check/overview", { params });
+    overview.value = res.data || {};
+    const last7 = overview.value.last7Days || {};
+    if (trendChart.value) {
+      trendChart.value.setOption({
+        title: { text: "近7日打卡次数 & 学习时长", left: "center", textStyle: { fontSize: 13 } },
+        tooltip: { trigger: "axis" },
+        legend: { data: ["打卡次数", "学习时长(分钟)"], bottom: 0 },
+        grid: { left: 40, right: 20, top: 40, bottom: 50 },
+        xAxis: {
+          type: "category",
+          data: last7.labels || [],
+          axisLabel: { fontSize: 11 }
+        },
+        yAxis: [
+          { type: "value", name: "次数", minInterval: 1 },
+          { type: "value", name: "分钟" }
+        ],
+        series: [
+          {
+            name: "打卡次数",
+            type: "line",
+            smooth: true,
+            data: last7.checkCounts || [],
+            itemStyle: { color: "#3b82f6" },
+            areaStyle: { opacity: 0.15 }
+          },
+          {
+            name: "学习时长(分钟)",
+            type: "line",
+            smooth: true,
+            yAxisIndex: 1,
+            data: last7.durationMinutes || [],
+            itemStyle: { color: "#22c55e" },
+            areaStyle: { opacity: 0.1 }
+          }
+        ]
+      });
+    }
+  } catch (e) {
+    console.error("加载打卡概览失败:", e);
+  }
+};
+
 const resetQuery = () => {
   query.value = {
     classId: undefined,
     dates: []
   };
   load();
+  loadOverview();
 };
 
 // 图片预览处理
@@ -210,17 +296,99 @@ const handleDialogClose = () => {
   }, 300);
 };
 
-onMounted(() => {
+const warnings = ref([]);
+
+const loadWarnings = async () => {
+  try {
+    const res = await request.get("/api/counselor/check/warnings");
+    warnings.value = res.data || [];
+  } catch (_) {
+    warnings.value = [];
+  }
+};
+
+const formatPercent = (value) => {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num) || num <= 0) return "0%";
+  // 后端返回的是 0-1 比例
+  if (num <= 1) {
+    return `${Math.round(num * 100)}%`;
+  }
+  return `${Math.round(num)}%`;
+};
+
+onMounted(async () => {
+  await nextTick();
+  if (trendRef.value) {
+    trendChart.value = echarts.init(trendRef.value);
+  }
   loadClasses();
+  loadWarnings();
   load();
+  loadOverview();
 });
 </script>
 
 <style scoped lang="less">
+.warn-card {
+  margin-bottom: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 180, 80, 0.4);
+  .warn-title {
+    font-weight: 600;
+    color: #b45309;
+  }
+}
+
 .checkin-dashboard {
   padding: 20px;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
   min-height: calc(100vh - 64px);
+  
+  .overview-card {
+    border: none;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+    margin-bottom: 20px;
+    
+    .overview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      
+      .overview-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: #1e293b;
+      }
+      
+      .overview-meta {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        
+        .rate-label {
+          font-size: 13px;
+          color: #64748b;
+        }
+        
+        .rate-value {
+          font-size: 20px;
+          font-weight: 700;
+          color: #16a34a;
+        }
+      }
+    }
+    
+    .overview-body {
+      padding: 8px 0 4px;
+      
+      .trend-chart {
+        width: 100%;
+        height: 260px;
+      }
+    }
+  }
   
   .main-card {
     border: none;

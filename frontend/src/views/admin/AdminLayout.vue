@@ -94,6 +94,7 @@ const store = useUserStore();
 
 // 菜单项定义
 const menuItems = ref([
+  { icon: "📈", text: "运营统计", path: "/admin/stats", description: "用户增长、内容运营、公告运营可视化" },
   { icon: "📢", text: "帖子管理", path: "/admin/posts", description: "管理用户发布的帖子内容" },
   { icon: "📢", text: "公告管理", path: "/admin/notice", description: "发布和管理系统公告" },
   { icon: "👥", text: "用户管理", path: "/admin/users", description: "管理系统用户和权限" },

@@ -79,12 +79,12 @@
 
       <!-- 帖子统计 -->
       <div class="post-stats">
-        <div class="stat-item">
+        <button type="button" class="stat-item like-stat" :class="{ liked: post.liked }" @click="togglePostLike">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
           </svg>
           <span>{{ post.likeCount || 0 }}</span>
-        </div>
+        </button>
         <div class="stat-item">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10z"></path>
@@ -108,7 +108,12 @@
 
       <!-- 评论列表 -->
       <div class="comments-list">
-        <div class="comment-item" v-for="c in comments" :key="c.id">
+        <div
+          class="comment-item"
+          :class="{ reply: c.parentId }"
+          v-for="c in comments"
+          :key="c.id"
+        >
           <div class="comment-avatar clickable" @click="goUserHome(c.userId)" :style="{ background: getGradientColor(c.userId) }">
             {{ (userNameMap[c.userId] || "匿").slice(0, 1).toUpperCase() }}
           </div>
@@ -122,11 +127,23 @@
                 <span class="comment-time">{{ formatTime(c.createTime) }}</span>
               </div>
               <div class="comment-actions">
-                <button class="comment-action-btn" title="回复">回复</button>
-                <button class="comment-action-btn" title="点赞">👍 {{ c.likeCount || 0 }}</button>
+                <button class="comment-action-btn" type="button" @click="startReply(c)">回复</button>
+                <button
+                  v-if="canDeleteComment(c)"
+                  class="comment-action-btn danger"
+                  type="button"
+                  @click="removeComment(c)"
+                >
+                  删除
+                </button>
               </div>
             </div>
-            <div class="comment-text">{{ c.content }}</div>
+            <div class="comment-text">
+              <template v-if="c.parentId && c.replyToUserName">
+                <span class="reply-tag">回复 {{ c.replyToUserName }}：</span>
+              </template>
+              {{ c.content }}
+            </div>
           </div>
         </div>
         
@@ -142,7 +159,7 @@
       <div class="input-container">
         <input 
           v-model.trim="commentText" 
-          placeholder="写下你的评论..." 
+          :placeholder="replyingTo ? `回复 ${replyName}：` : '写下你的评论...'" 
           class="comment-input"
           @keyup.enter="submitComment"
         />
@@ -168,15 +185,18 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { useRouter } from "vue-router";
 import request from "@/utils/request";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { useUserStore } from "@/store/user";
 
 const route = useRoute();
 const router = useRouter();
+const store = useUserStore();
 const post = ref(null);
 const comments = ref([]);
 const commentText = ref("");
 const userNameMap = ref({});
 const sortBy = ref("time");
+const replyingTo = ref(null);
 
 // 生成用户头像渐变背景色
 const getGradientColor = (userId) => {
@@ -204,6 +224,44 @@ const formatTime = (raw) => {
   if (diff < 604800000) return `${Math.floor(diff / 86400000)}天前`;
   
   return date.toLocaleDateString().replace(/\//g, "-");
+};
+
+const replyName = computed(() =>
+  replyingTo.value ? userNameMap.value[replyingTo.value.userId] || "用户" : ""
+);
+
+const canDeleteComment = (c) => {
+  const uid = store.user?.id;
+  if (!uid || !post.value) return false;
+  return c.userId === uid || post.value.userId === uid;
+};
+
+const startReply = (c) => {
+  replyingTo.value = c;
+};
+
+const removeComment = async (c) => {
+  try {
+    await ElMessageBox.confirm("确定删除该评论？", "提示", { type: "warning" });
+    await request.delete(`/api/student/post/comment/${c.id}`);
+    ElMessage.success("已删除");
+    await loadDetail();
+  } catch (e) {
+    if (e !== "cancel") ElMessage.error(e?.message || "删除失败");
+  }
+};
+
+const togglePostLike = async () => {
+  try {
+    const res = await request.post(`/api/student/post/like/${route.params.id}`);
+    const data = res.data;
+    if (data && post.value) {
+      post.value.liked = !!data.liked;
+      post.value.likeCount = data.likeCount;
+    }
+  } catch (e) {
+    ElMessage.error(e?.message || "操作失败");
+  }
 };
 
 // 获取图片列表
@@ -262,13 +320,18 @@ const submitComment = async () => {
   }
   
   try {
-    await request.post("/api/student/post/comment", {
+    const payload = {
       postId: Number(route.params.id),
       content: commentText.value.trim()
-    });
+    };
+    if (replyingTo.value?.id) {
+      payload.parentId = replyingTo.value.id;
+    }
+    await request.post("/api/student/post/comment", payload);
     
     ElMessage.success("评论成功");
     commentText.value = "";
+    replyingTo.value = null;
     await loadDetail();
   } catch (e) {
     const msg = e?.message || "评论失败";
@@ -518,6 +581,25 @@ onMounted(loadDetail);
   }
 }
 
+.like-stat {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 10px;
+  transition: color 0.2s, background 0.2s;
+  &.liked {
+    color: #ff4d6a;
+    svg {
+      stroke: #ff4d6a;
+      fill: #ff4d6a;
+    }
+  }
+  &:hover {
+    background: rgba(255, 77, 106, 0.08);
+  }
+}
+
 /* 评论区域 */
 .comments-section {
   background: white;
@@ -580,6 +662,28 @@ onMounted(loadDetail);
   
   &:last-child {
     border-bottom: none;
+  }
+
+  &.reply {
+    padding-left: 36px;
+    background: rgba(106, 85, 255, 0.03);
+    margin-left: 8px;
+    border-radius: 12px;
+    padding-right: 8px;
+  }
+}
+
+.reply-tag {
+  color: #6a55ff;
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.comment-action-btn.danger {
+  color: #ff6b6b;
+  &:hover {
+    background: rgba(255, 107, 107, 0.1);
+    color: #ff6b6b;
   }
 }
 

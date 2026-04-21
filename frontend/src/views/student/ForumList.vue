@@ -154,11 +154,22 @@
       
       <div v-else class="empty-state">
         <div class="empty-icon">📝</div>
-        <h3>暂无帖子</h3>
+        <h3>暂无数据</h3>
         <p>当前没有符合条件的帖子，尝试发布第一条吧！</p>
         <button class="empty-publish-btn" @click="openPublishModal">
           发布第一条帖子
         </button>
+      </div>
+
+      <div class="forum-pagination" v-if="page.total > 0">
+        <el-pagination
+          background
+          :current-page="page.current"
+          :page-size="page.size"
+          :total="page.total"
+          layout="total, prev, pager, next"
+          @current-change="onPageChange"
+        />
       </div>
     </div>
 
@@ -318,7 +329,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, nextTick } from "vue";
+import { computed, onMounted, ref, nextTick, watch } from "vue";
 import { useRouter } from "vue-router";
 import request from "@/utils/request";
 import { useUserStore } from "@/store/user";
@@ -344,28 +355,8 @@ const uploading = ref(false);
 const uploadItems = ref([]);
 let uploadSeq = 1;
 
-const posts = ref([
-  {
-    id: 1,
-    userName: "张同学",
-    time: "刚刚",
-    category: "二手",
-    title: "二手高数教材转让",
-    content: "九成新，同校面交。",
-    likeCount: 5,
-    liked: false
-  },
-  {
-    id: 2,
-    userName: "李同学",
-    time: "10分钟前",
-    category: "求助",
-    title: "求问离散数学复习重点",
-    content: "有没有学长学姐分享下重点章节。",
-    likeCount: 12,
-    liked: true
-  }
-]);
+const posts = ref([]);
+const page = ref({ current: 1, size: 10, total: 0 });
 
 // 计算属性
 const canPublish = computed(() => {
@@ -375,14 +366,14 @@ const canPublish = computed(() => {
          publishForm.value.content.length <= 300;
 });
 
+const categoryForApi = computed(() => {
+  if (checkedCategories.value.length === categoryOptions.length) return undefined;
+  if (checkedCategories.value.length === 1) return checkedCategories.value[0];
+  return undefined;
+});
+
 const filteredPosts = computed(() =>
-  posts.value.filter(
-    (p) =>
-      checkedCategories.value.includes(p.category) &&
-      (!keyword.value ||
-        p.title.includes(keyword.value) ||
-        p.content.includes(keyword.value))
-  )
+  posts.value.filter((p) => checkedCategories.value.includes(p.category))
 );
 
 // 方法
@@ -430,6 +421,8 @@ const toggleCategory = (category) => {
   } else {
     checkedCategories.value.push(category);
   }
+  page.value.current = 1;
+  loadPosts();
 };
 
 const handleSearch = () => {
@@ -486,15 +479,25 @@ const createPostRemote = async (payload) => {
 const loadPosts = async () => {
   try {
     const res = await request.get("/api/student/post/page", {
-      params: { current: 1, size: 50 }
+      params: {
+        current: page.value.current,
+        size: page.value.size,
+        keyword: keyword.value || undefined,
+        category: categoryForApi.value
+      }
     });
     const records = res.data?.records || [];
-    if (records.length) {
-      posts.value = records.map(mapPost);
-    }
+    posts.value = records.map(mapPost);
+    page.value.total = res.data?.total ?? 0;
   } catch (_) {
-    // ignore, keep local mock data
+    posts.value = [];
+    page.value.total = 0;
   }
+};
+
+const onPageChange = (p) => {
+  page.value.current = p;
+  loadPosts();
 };
 
 const syncImageUrl = () => {
@@ -614,12 +617,14 @@ const handlePublish = async () => {
 };
 
 const doLike = async (post) => {
-  if (!post.userId || post.userId === store.user?.id) return;
+  if (!post.userId) return;
   try {
-    await request.post(`/api/student/post/like/${post.id}`);
-    post.likeCount = (post.likeCount || 0) + 1;
-    post.liked = true;
-    ElMessage.success("点赞成功");
+    const res = await request.post(`/api/student/post/like/${post.id}`);
+    const data = res.data;
+    if (data && typeof data.likeCount === "number") {
+      post.liked = !!data.liked;
+      post.likeCount = data.likeCount;
+    }
   } catch (_) {
     // ignore
   }
@@ -645,6 +650,11 @@ const deleteMine = async (post) => {
     // 用户取消删除
   }
 };
+
+watch(keyword, () => {
+  page.value.current = 1;
+  loadPosts();
+});
 
 onMounted(loadPosts);
 </script>
@@ -845,6 +855,12 @@ onMounted(loadPosts);
 }
 
 /* 帖子列表样式 */
+.forum-pagination {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 8px;
+}
+
 .posts-container {
   background: white;
   border-radius: 20px;

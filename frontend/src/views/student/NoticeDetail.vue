@@ -1,11 +1,11 @@
 <template>
   <div class="notice-detail" v-if="notice">
     <!-- 公告头部区域 -->
-    <div class="notice-header">
-      <div class="header-background">
+    <div class="notice-header" :class="{ 'no-hero-img': !headerCoverSrc }">
+      <div class="header-background" v-if="headerCoverSrc">
         <img 
           class="cover" 
-          :src="notice.imageUrl || defaultImg" 
+          :src="headerCoverSrc" 
           :alt="notice.title"
         />
         <div class="cover-overlay"></div>
@@ -52,6 +52,16 @@
         </div>
         
         <div class="content-text">{{ notice.content }}</div>
+
+        <div v-if="singleNoticeImage" class="content-images">
+          <el-image
+            class="content-img"
+            :src="singleNoticeImage"
+            fit="contain"
+            preview-teleported
+            :preview-src-list="[singleNoticeImage]"
+          />
+        </div>
         
         <div class="content-footer">
           <div class="important-tip">
@@ -77,14 +87,31 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import request from "@/utils/request";
 
 const route = useRoute();
 const notice = ref(null);
-const defaultImg =
-  "https://java-web-zwx.oss-cn-beijing.aliyuncs.com/20250905214631_%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_2025-08-26_122856_580.jpg";
+
+const noticeImageList = computed(() => {
+  const u = notice.value?.imageUrl;
+  if (!u) return [];
+  return String(u).split(",").map((x) => x.trim()).filter(Boolean);
+});
+
+/** 学生端：仅 1 张图展示；≥2 张不展示任何图片 */
+const headerCoverSrc = computed(() => {
+  const list = noticeImageList.value;
+  if (list.length === 1) return list[0];
+  return null;
+});
+
+const singleNoticeImage = computed(() => {
+  const list = noticeImageList.value;
+  if (list.length === 1) return list[0];
+  return null;
+});
 
 // 格式化时间
 const formatTime = (v) => {
@@ -111,6 +138,11 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="less">
+.notice-header.no-hero-img {
+  padding-top: 32px;
+  background: linear-gradient(135deg, #6a55ff 0%, #8a7aff 100%);
+}
+
 .notice-detail {
   max-width: 1000px;
   margin: 0 auto;

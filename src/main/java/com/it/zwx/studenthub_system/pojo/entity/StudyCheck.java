@@ -21,6 +21,8 @@ public class StudyCheck {
     private String imageUrl;
     private Integer status; // 0异常 1正常
     private LocalDateTime checkTime;
+    /** 本次学习时长（分钟） */
+    private Integer studyDurationMinutes;
     @TableField(exist = false)
     private String studentName;
     @TableField(exist = false)

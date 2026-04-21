@@ -36,3 +36,22 @@ ALTER TABLE exam
 -- 帖子表增量字段：图片地址
 ALTER TABLE post
   ADD COLUMN IF NOT EXISTS image_url VARCHAR(500) NULL;
+
+-- 帖子点赞（用户-帖子唯一）
+CREATE TABLE IF NOT EXISTS post_like (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  post_id INT NOT NULL,
+  user_id INT NOT NULL,
+  create_time DATETIME NOT NULL,
+  UNIQUE KEY uk_post_user (post_id, user_id),
+  INDEX idx_post_like_post (post_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 评论二级回复
+ALTER TABLE post_comment
+  ADD COLUMN IF NOT EXISTS parent_id INT NULL,
+  ADD COLUMN IF NOT EXISTS reply_to_user_id INT NULL;
+
+-- 学业打卡学习时长（分钟）
+ALTER TABLE study_check
+  ADD COLUMN IF NOT EXISTS study_duration_minutes INT NULL DEFAULT 0;

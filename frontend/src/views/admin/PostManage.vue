@@ -8,15 +8,7 @@
           <h3>帖子管理</h3>
           <p>管理系统用户发布的帖子内容</p>
         </div>
-        <div class="card-actions">
-          <button class="action-btn add-btn" @click="openAdd">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-            新增帖子
-          </button>
-        </div>
+        <div class="card-actions"></div>
       </div>
 
       <!-- 过滤工具栏 -->
@@ -186,7 +178,7 @@
     <!-- 帖子弹窗 -->
     <el-dialog
       v-model="dialogVisible"
-      :title="editId ? '编辑帖子' : '新增帖子'"
+      title="编辑帖子"
       width="600px"
       class="form-dialog"
     >
@@ -304,15 +296,6 @@ const toggleStatus = async (row, status) => {
   load();
 };
 
-const openAdd = () => {
-  editId.value = null;
-  form.category = "";
-  form.title = "";
-  form.content = "";
-  form.imageUrl = "";
-  dialogVisible.value = true;
-};
-
 const openEdit = (row) => {
   editId.value = row.id;
   form.category = row.category || "";
@@ -323,15 +306,12 @@ const openEdit = (row) => {
 };
 
 const submit = async () => {
+  if (!editId.value) return;
   const payload = {
     ...form,
     imageUrl: normalizeImageUrl(form.imageUrl)
   };
-  if (editId.value) {
-    await request.put(`/api/admin/post-manage/${editId.value}`, payload);
-  } else {
-    await request.post("/api/admin/post-manage", payload);
-  }
+  await request.put(`/api/admin/post-manage/${editId.value}`, payload);
   ElMessage.success("操作成功");
   dialogVisible.value = false;
   load();

@@ -31,9 +31,12 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -73,10 +76,8 @@ public class UserController {
             Map<String, Object> loginResult = userService.login(loginDTO);
             Object userObj = loginResult.get("user");
             if (userObj instanceof User user && user.getRole() != null && user.getRole() == 1) {
-                // 学生登录后推送「24小时课程 + 7天考试」提醒（WebSocket在线时实时可见）
                 reminderService.pushLoginReminders(user.getId());
             }
-
             return Result.success(loginResult);
 
         } catch (BusinessException e) {
@@ -228,6 +229,7 @@ public class UserController {
         res.put("userName", user.getUserName());
         res.put("avatar", user.getUserAvatar());
         res.put("role", user.getRole());
+        res.put("identityType", user.getIdentityType() != null ? user.getIdentityType() : user.getRole());
         return Result.success(res);
     }
 
@@ -303,6 +305,7 @@ public class UserController {
             // 兼容旧字段
             String classes = user.getChargeClassIds() == null ? "" : user.getChargeClassIds();
             res.put("managedClasses", classes);
+            res.put("chargeScopeText", formatCounselorChargeScope(user));
         }
         return Result.success(res);
     }
@@ -363,6 +366,36 @@ public class UserController {
         Map<String, Object> claims = ThreadLocalUtil.get();
         if (claims == null || claims.get("id") == null) throw new BusinessException("请先登录");
         return claims.get("id") instanceof Integer ? (Integer) claims.get("id") : ((Number) claims.get("id")).intValue();
+    }
+
+    /**
+     * 辅导员负责班级展示：专业名称：班级号1班、班级号2班
+     */
+    private String formatCounselorChargeScope(User user) {
+        String classIds = user.getChargeClassIds();
+        if (classIds == null || classIds.isBlank()) {
+            return "-";
+        }
+        Map<Integer, List<String>> majorIdToClassLabels = new LinkedHashMap<>();
+        for (String cid : classIds.split(",")) {
+            if (StringUtils.isBlank(cid)) continue;
+            try {
+                ClassInfo ci = classInfoService.getById(Integer.parseInt(cid.trim()));
+                if (ci != null && ci.getMajorId() != null) {
+                    String label = ci.getName() + "班";
+                    majorIdToClassLabels.computeIfAbsent(ci.getMajorId(), k -> new ArrayList<>()).add(label);
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<Integer, List<String>> e : majorIdToClassLabels.entrySet()) {
+            MajorInfo m = majorInfoService.getById(e.getKey());
+            if (m == null) continue;
+            if (sb.length() > 0) sb.append("；");
+            sb.append(m.getName()).append("：").append(String.join("、", e.getValue()));
+        }
+        return sb.length() > 0 ? sb.toString() : "-";
     }
 }
 

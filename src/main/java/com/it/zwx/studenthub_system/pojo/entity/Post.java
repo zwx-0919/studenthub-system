@@ -1,6 +1,7 @@
 package com.it.zwx.studenthub_system.pojo.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -23,5 +24,9 @@ public class Post {
     private Integer commentCount;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
+
+    /** 当前用户是否已点赞（仅查询时填充，非表字段） */
+    @TableField(exist = false)
+    private Boolean liked;
 }
 

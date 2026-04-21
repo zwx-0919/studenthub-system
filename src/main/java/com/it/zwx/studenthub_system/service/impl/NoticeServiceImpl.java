@@ -4,13 +4,16 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.it.zwx.studenthub_system.exception.BusinessException;
 import com.it.zwx.studenthub_system.mapper.NoticeMapper;
 import com.it.zwx.studenthub_system.pojo.dto.NoticeDTO;
 import com.it.zwx.studenthub_system.pojo.dto.extend.NoticePageDTO;
 import com.it.zwx.studenthub_system.pojo.entity.Notice;
 import com.it.zwx.studenthub_system.service.NoticeService;
+import com.it.zwx.studenthub_system.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +25,16 @@ import java.util.List;
 @Slf4j
 public class NoticeServiceImpl extends ServiceImpl<NoticeMapper, Notice> implements NoticeService {
 
+    private static final String NOTICE_CACHE_PATTERN = "cache:notice:*";
+    private static final String NOTICE_PAGE_CACHE_PREFIX = "cache:notice:page:";
+
+    @Autowired
+    private RedisCacheService redisCacheService;
+
+    private void evictNoticeCaches() {
+        redisCacheService.deleteCacheByPattern(NOTICE_CACHE_PATTERN);
+    }
+
     /**
      * 条件查询公告列表
      *
@@ -30,8 +43,22 @@ public class NoticeServiceImpl extends ServiceImpl<NoticeMapper, Notice> impleme
      */
     @Override
     public Page<Notice> listNotice(NoticePageDTO dto) {
-        Integer current = dto.getCurrent();
-        Integer size = dto.getSize();
+        long current = dto.getCurrent() == null || dto.getCurrent() < 1 ? 1 : dto.getCurrent();
+        long size = dto.getSize() == null || dto.getSize() < 1 ? 10 : dto.getSize();
+
+        String cacheKey = NOTICE_PAGE_CACHE_PREFIX
+                + "c=" + current
+                + "&s=" + size
+                + "&title=" + (dto.getTitleKeyword() == null ? "" : dto.getTitleKeyword())
+                + "&status=" + (dto.getStatus() == null ? "" : dto.getStatus())
+                + "&authorId=" + (dto.getAuthorId() == null ? "" : dto.getAuthorId())
+                + "&start=" + (dto.getPublishTimeStart() == null ? "" : dto.getPublishTimeStart())
+                + "&end=" + (dto.getPublishTimeEnd() == null ? "" : dto.getPublishTimeEnd());
+        Page<Notice> cached = redisCacheService.getCache(cacheKey, new TypeReference<Page<Notice>>() {});
+        if (cached != null) {
+            return cached;
+        }
+
         Page<Notice> page = new Page<>(current, size);
 
         QueryWrapper<Notice> queryWrapper = new QueryWrapper<>();
@@ -42,6 +69,7 @@ public class NoticeServiceImpl extends ServiceImpl<NoticeMapper, Notice> impleme
                 .le(dto.getPublishTimeEnd() != null, "publish_time", dto.getPublishTimeEnd());
 
         baseMapper.selectPage(page, queryWrapper);
+        redisCacheService.setCache(cacheKey, page, 5);
         return page;
     }
 
@@ -67,6 +95,7 @@ public class NoticeServiceImpl extends ServiceImpl<NoticeMapper, Notice> impleme
         notice.setViewCount(0);
 
         baseMapper.insert(notice);
+        evictNoticeCaches();
     }
 
     @Override
@@ -91,6 +120,7 @@ public class NoticeServiceImpl extends ServiceImpl<NoticeMapper, Notice> impleme
         }
 
         baseMapper.updateById(notice);
+        evictNoticeCaches();
     }
 
     @Override
@@ -108,6 +138,7 @@ public class NoticeServiceImpl extends ServiceImpl<NoticeMapper, Notice> impleme
         if (rows == 0) {
             throw new BusinessException("公告不存在，或当前状态不支持切换（仅已发布/已下架可切换）");
         }
+        evictNoticeCaches();
     }
 
     @Override
@@ -122,7 +153,7 @@ public class NoticeServiceImpl extends ServiceImpl<NoticeMapper, Notice> impleme
             throw new BusinessException("公告删除失败，部分公告可能已不存在");
         }
         log.info("管理员批量删除公告：成功删除{}个公告，ID列表={}", deleteCount, ids);
-
+        evictNoticeCaches();
     }
 
     @Override
@@ -135,6 +166,7 @@ public class NoticeServiceImpl extends ServiceImpl<NoticeMapper, Notice> impleme
         update.setId(id);
         update.setViewCount((notice.getViewCount() == null ? 0 : notice.getViewCount()) + 1);
         baseMapper.updateById(update);
+        evictNoticeCaches();
         return baseMapper.selectById(id);
     }
 }

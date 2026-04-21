@@ -10,4 +10,6 @@ public class PostCommentAddDTO {
     private Integer postId;
     @NotBlank(message = "评论内容不能为空")
     private String content;
+    /** 回复某条评论时传入父评论 ID */
+    private Integer parentId;
 }

@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/student/check")
 @Tag(name = "学生打卡")
@@ -31,6 +33,12 @@ public class StudyCheckController {
     @Operation(summary = "学生查看本人打卡记录")
     public Result<Page<StudyCheck>> page(@ModelAttribute StudyCheckPageDTO dto) {
         return Result.success(studyCheckService.studentPage(dto));
+    }
+
+    @GetMapping("/warning")
+    @Operation(summary = "本周/本月打卡与学习时长是否未达标")
+    public Result<Map<String, Object>> warning() {
+        return Result.success(studyCheckService.studentCheckWarning());
     }
 }
 

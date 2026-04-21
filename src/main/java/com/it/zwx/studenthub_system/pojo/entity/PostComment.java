@@ -1,6 +1,7 @@
 package com.it.zwx.studenthub_system.pojo.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -16,4 +17,11 @@ public class PostComment {
     private Integer userId;
     private String content;
     private LocalDateTime createTime;
+    /** 父评论 ID，一级评论为空 */
+    private Integer parentId;
+    /** 被回复的用户 ID */
+    private Integer replyToUserId;
+
+    @TableField(exist = false)
+    private String replyToUserName;
 }

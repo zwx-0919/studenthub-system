@@ -33,9 +33,8 @@
           <div class="course-info">
             <div class="course-name">{{ c.courseName }}</div>
             <div v-if="c.teacherName" class="course-teacher">👨‍🏫 {{ c.teacherName }}</div>
-            <div v-if="c.credit" class="course-credit">🏅 {{ c.credit }} 学分</div>
-            <div v-if="c.classTime" class="course-time">⏰ {{ c.classTime }}</div>
-            <div v-if="c.classroom" class="course-location">📍 {{ c.classroom }}</div>
+            <div v-if="c.time" class="course-time">⏰ 上课时间：{{ formatCourseTime(c.time) }}</div>
+            <div v-if="c.location" class="course-location">📍 上课地点：{{ c.location }}</div>
           </div>
           <div v-if="c.score" class="course-score" :class="getScoreClass(c.score)">
             {{ c.score }}
@@ -45,8 +44,19 @@
       
       <div v-else class="empty-state">
         <div class="empty-icon">📖</div>
-        <h4>暂无课程</h4>
+        <h4>暂无数据</h4>
         <p>当前学期没有安排课程</p>
+      </div>
+      <div class="list-pagination" v-if="coursePage.total > 0">
+        <el-pagination
+          background
+          small
+          :current-page="coursePage.current"
+          :page-size="coursePage.size"
+          :total="coursePage.total"
+          layout="total, prev, pager, next"
+          @current-change="(p) => { coursePage.current = p; loadCourses(); }"
+        />
       </div>
     </div>
 
@@ -73,7 +83,7 @@
       </div>
       
       <div v-else-if="exams.length > 0" class="exam-list">
-        <div v-for="e in sortedExams" :key="e.id" class="exam-item" :class="{ 'urgent': isExamUrgent(e.examTime) }">
+        <div v-for="e in sortedExams" :key="e.id" class="exam-item" :class="{ 'urgent': isExamUrgent(e.time) }">
           <div class="exam-icon">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 20h9"></path>
@@ -83,16 +93,15 @@
           <div class="exam-info">
             <div class="exam-name">{{ e.examName }}</div>
             <div v-if="e.courseName" class="exam-course">📚 {{ e.courseName }}</div>
-            <div v-if="e.examTime" class="exam-time">⏰ {{ formatExamTime(e.examTime) }}</div>
+            <div v-if="e.time" class="exam-time">⏰ 考试时间：{{ formatExamTime(e.time) }}</div>
             <div v-if="e.location" class="exam-location">📍 {{ e.location }}</div>
-            <div v-if="e.duration" class="exam-duration">⏳ {{ e.duration }} 分钟</div>
           </div>
           <div class="exam-status">
-            <div v-if="isExamPassed(e.examTime)" class="status-badge passed">已结束</div>
-            <div v-else-if="isExamUrgent(e.examTime)" class="status-badge urgent">即将开始</div>
+            <div v-if="isExamPassed(e.time)" class="status-badge passed">已结束</div>
+            <div v-else-if="isExamUrgent(e.time)" class="status-badge urgent">即将开始</div>
             <div v-else class="status-badge upcoming">未开始</div>
-            <div v-if="e.examTime" class="exam-countdown">
-              {{ getExamCountdown(e.examTime) }}
+            <div v-if="e.time" class="exam-countdown">
+              {{ getExamCountdown(e.time) }}
             </div>
           </div>
         </div>
@@ -100,8 +109,19 @@
       
       <div v-else class="empty-state">
         <div class="empty-icon">📄</div>
-        <h4>暂无考试</h4>
+        <h4>暂无数据</h4>
         <p>当前没有考试安排</p>
+      </div>
+      <div class="list-pagination" v-if="examPage.total > 0">
+        <el-pagination
+          background
+          small
+          :current-page="examPage.current"
+          :page-size="examPage.size"
+          :total="examPage.total"
+          layout="total, prev, pager, next"
+          @current-change="(p) => { examPage.current = p; loadExams(); }"
+        />
       </div>
     </div>
   </div>
@@ -115,12 +135,14 @@ const courses = ref([]);
 const exams = ref([]);
 const loadingCourses = ref(false);
 const loadingExams = ref(false);
+const coursePage = ref({ current: 1, size: 10, total: 0 });
+const examPage = ref({ current: 1, size: 10, total: 0 });
 
 // 计算属性：按考试时间排序
 const sortedExams = computed(() => {
   return [...exams.value].sort((a, b) => {
-    const timeA = a.examTime ? new Date(a.examTime).getTime() : 0;
-    const timeB = b.examTime ? new Date(b.examTime).getTime() : 0;
+    const timeA = a.time ? new Date(a.time).getTime() : 0;
+    const timeB = b.time ? new Date(b.time).getTime() : 0;
     return timeA - timeB;
   });
 });
@@ -130,9 +152,10 @@ const loadCourses = async () => {
   loadingCourses.value = true;
   try {
     const res = await request.get("/api/student/course/page", { 
-      params: { current: 1, size: 20 } 
+      params: { current: coursePage.value.current, size: coursePage.value.size } 
     });
     courses.value = res.data?.records || [];
+    coursePage.value.total = res.data?.total ?? 0;
   } catch (error) {
     console.error("加载课程失败:", error);
   } finally {
@@ -144,14 +167,20 @@ const loadExams = async () => {
   loadingExams.value = true;
   try {
     const res = await request.get("/api/student/exam/page", { 
-      params: { current: 1, size: 20 } 
+      params: { current: examPage.value.current, size: examPage.value.size } 
     });
     exams.value = res.data?.records || [];
+    examPage.value.total = res.data?.total ?? 0;
   } catch (error) {
     console.error("加载考试失败:", error);
   } finally {
     loadingExams.value = false;
   }
+};
+
+const formatCourseTime = (time) => {
+  if (!time) return "待定";
+  return formatExamTime(time);
 };
 
 // 格式化考试时间
@@ -222,6 +251,12 @@ onMounted(() => {
 </script>
 
 <style scoped lang="less">
+.list-pagination {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 0;
+}
+
 .schedule-page {
   display: grid;
   grid-template-columns: 1fr 1fr;

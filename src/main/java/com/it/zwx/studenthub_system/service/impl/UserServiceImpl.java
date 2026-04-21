@@ -17,7 +17,9 @@ import com.it.zwx.studenthub_system.pojo.dto.extend.UserPageDTO;
 import com.it.zwx.studenthub_system.pojo.dto.extend.UserStatusDTO;
 import com.it.zwx.studenthub_system.pojo.entity.ClassInfo;
 import com.it.zwx.studenthub_system.pojo.entity.User;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.it.zwx.studenthub_system.service.ClassInfoService;
+import com.it.zwx.studenthub_system.service.RedisCacheService;
 import com.it.zwx.studenthub_system.service.UserService;
 import com.it.zwx.studenthub_system.utils.JwtUtil;
 import com.it.zwx.studenthub_system.utils.Md5Util;
@@ -25,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -41,6 +44,46 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private RedisTemplate redisTemplate;
     @Autowired
     private ClassInfoService classInfoService;
+    @Autowired
+    private RedisCacheService redisCacheService;
+
+    private static final String USER_CACHE_PREFIX = "cache:user:info:";
+
+    private void evictUserCache(Integer id) {
+        if (id != null) {
+            redisCacheService.deleteCache(USER_CACHE_PREFIX + id);
+        }
+    }
+
+    @Override
+    public User getById(Serializable id) {
+        if (id == null) {
+            return null;
+        }
+        Integer uid = id instanceof Integer ? (Integer) id : ((Number) id).intValue();
+        String key = USER_CACHE_PREFIX + uid;
+        try {
+            User cached = redisCacheService.getCache(key, new TypeReference<User>() {});
+            if (cached != null) {
+                return cached;
+            }
+        } catch (Exception ignored) {
+        }
+        User user = super.getById(id);
+        if (user != null) {
+            redisCacheService.setCache(key, user, 30);
+        }
+        return user;
+    }
+
+    @Override
+    public boolean updateById(User entity) {
+        boolean ok = super.updateById(entity);
+        if (ok && entity != null && entity.getId() != null) {
+            evictUserCache(entity.getId());
+        }
+        return ok;
+    }
     /**
      * 根据用户名查询用户
      *
@@ -173,6 +216,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      */
     @Override
     public void deleteUser(List<Integer> ids) {
+        if (ids != null) {
+            for (Integer id : ids) {
+                evictUserCache(id);
+            }
+        }
         baseMapper.deleteByIds(ids);
     }
 

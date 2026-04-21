@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.it.zwx.studenthub_system.constant.MessageConstant;
 import com.it.zwx.studenthub_system.exception.BusinessException;
 import com.it.zwx.studenthub_system.mapper.CourseMapper;
@@ -14,6 +15,7 @@ import com.it.zwx.studenthub_system.pojo.entity.Course;
 import com.it.zwx.studenthub_system.pojo.entity.User;
 import com.it.zwx.studenthub_system.service.ClassInfoService;
 import com.it.zwx.studenthub_system.service.CourseService;
+import com.it.zwx.studenthub_system.service.RedisCacheService;
 import com.it.zwx.studenthub_system.service.UserService;
 import com.it.zwx.studenthub_system.utils.ThreadLocalUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -36,9 +38,37 @@ public class CourseServiceImpl extends ServiceImpl<CourseMapper, Course> impleme
     private UserService userService;
     @Autowired
     private ClassInfoService classInfoService;
+    @Autowired
+    private RedisCacheService redisCacheService;
+
+    private static final String COURSE_CACHE_PATTERN = "cache:course:*";
+    private static final String COURSE_ADMIN_PAGE_PREFIX = "cache:course:admin:page:";
+    private static final String COURSE_STUDENT_PAGE_PREFIX = "cache:course:student:page:";
+
+    private void evictCourseCaches() {
+        redisCacheService.deleteCacheByPattern(COURSE_CACHE_PATTERN);
+    }
 
     @Override
     public Page<Course> listAdminCourses(CoursePageDTO dto) {
+        long current = dto.getCurrent() == null || dto.getCurrent() < 1 ? 1 : dto.getCurrent();
+        long size = dto.getSize() == null || dto.getSize() < 1 ? 10 : dto.getSize();
+        String cacheKey = COURSE_ADMIN_PAGE_PREFIX
+                + "c=" + current
+                + "&s=" + size
+                + "&course=" + (dto.getCourseNameKeyword() == null ? "" : dto.getCourseNameKeyword())
+                + "&teacher=" + (dto.getTeacherNameKeyword() == null ? "" : dto.getTeacherNameKeyword())
+                + "&status=" + (dto.getStatus() == null ? "" : dto.getStatus())
+                + "&term=" + (dto.getTerm() == null ? "" : dto.getTerm())
+                + "&classNo=" + (dto.getClassNo() == null ? "" : dto.getClassNo())
+                + "&majorId=" + (dto.getMajorId() == null ? "" : dto.getMajorId())
+                + "&start=" + (dto.getTimeStart() == null ? "" : dto.getTimeStart())
+                + "&end=" + (dto.getTimeEnd() == null ? "" : dto.getTimeEnd());
+        Page<Course> cached = redisCacheService.getCache(cacheKey, new TypeReference<Page<Course>>() {});
+        if (cached != null) {
+            return cached;
+        }
+
         Page<Course> page = new Page<>(dto.getCurrent(), dto.getSize());
 
         QueryWrapper<Course> query = new QueryWrapper<>();
@@ -52,6 +82,7 @@ public class CourseServiceImpl extends ServiceImpl<CourseMapper, Course> impleme
                 .le(dto.getTimeEnd() != null, "time", dto.getTimeEnd());
 
         baseMapper.selectPage(page, query);
+        redisCacheService.setCache(cacheKey, page, 5);
         return page;
     }
 
@@ -59,8 +90,26 @@ public class CourseServiceImpl extends ServiceImpl<CourseMapper, Course> impleme
     public Page<Course> listStudentCourses(CoursePageDTO dto) {
         User currentUser = currentUser();
         // 学生只看启用状态
+        long current = dto.getCurrent() == null || dto.getCurrent() < 1 ? 1 : dto.getCurrent();
+        long size = dto.getSize() == null || dto.getSize() < 1 ? 10 : dto.getSize();
         Page<Course> page = new Page<>(dto.getCurrent(), dto.getSize());
         Integer studentMajorId = getStudentMajorId(currentUser);
+
+        String cacheKey = COURSE_STUDENT_PAGE_PREFIX
+                + "uid=" + (currentUser.getId() == null ? "" : currentUser.getId())
+                + "&majorId=" + (studentMajorId == null ? "" : studentMajorId)
+                + "&classId=" + (currentUser.getClassId() == null ? "" : currentUser.getClassId())
+                + "&c=" + current
+                + "&s=" + size
+                + "&course=" + (dto.getCourseNameKeyword() == null ? "" : dto.getCourseNameKeyword())
+                + "&teacher=" + (dto.getTeacherNameKeyword() == null ? "" : dto.getTeacherNameKeyword())
+                + "&term=" + (dto.getTerm() == null ? "" : dto.getTerm())
+                + "&start=" + (dto.getTimeStart() == null ? "" : dto.getTimeStart())
+                + "&end=" + (dto.getTimeEnd() == null ? "" : dto.getTimeEnd());
+        Page<Course> cached = redisCacheService.getCache(cacheKey, new TypeReference<Page<Course>>() {});
+        if (cached != null) {
+            return cached;
+        }
 
         QueryWrapper<Course> query = new QueryWrapper<>();
         query.like(dto.getCourseNameKeyword() != null, "course_name", dto.getCourseNameKeyword())
@@ -74,6 +123,7 @@ public class CourseServiceImpl extends ServiceImpl<CourseMapper, Course> impleme
                 .le(dto.getTimeEnd() != null, "time", dto.getTimeEnd());
 
         baseMapper.selectPage(page, query);
+        redisCacheService.setCache(cacheKey, page, 5);
         return page;
     }
 
@@ -105,6 +155,7 @@ public class CourseServiceImpl extends ServiceImpl<CourseMapper, Course> impleme
         course.setUpdateTime(LocalDateTime.now());
 
         baseMapper.insert(course);
+        evictCourseCaches();
     }
 
     @Override
@@ -129,6 +180,7 @@ public class CourseServiceImpl extends ServiceImpl<CourseMapper, Course> impleme
         exist.setUpdateTime(LocalDateTime.now());
 
         baseMapper.updateById(exist);
+        evictCourseCaches();
     }
 
     @Override
@@ -142,6 +194,7 @@ public class CourseServiceImpl extends ServiceImpl<CourseMapper, Course> impleme
         if (rows == 0) {
             throw new BusinessException("课程不存在，或当前状态不支持切换");
         }
+        evictCourseCaches();
     }
 
     @Override
@@ -154,6 +207,7 @@ public class CourseServiceImpl extends ServiceImpl<CourseMapper, Course> impleme
         if (rows == 0) {
             throw new BusinessException(MessageConstant.OPERATE_FAILED);
         }
+        evictCourseCaches();
     }
 
     private User currentUser() {

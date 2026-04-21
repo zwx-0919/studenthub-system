@@ -8,6 +8,7 @@ import com.it.zwx.studenthub_system.pojo.dto.extend.PostPageDTO;
 import com.it.zwx.studenthub_system.pojo.entity.Post;
 import com.it.zwx.studenthub_system.pojo.entity.PostComment;
 import com.it.zwx.studenthub_system.pojo.vo.PostDetailVO;
+import com.it.zwx.studenthub_system.pojo.vo.PostLikeResultVO;
 
 import java.util.List;
 
@@ -26,8 +27,10 @@ public interface PostService extends IService<Post> {
 
     PostComment addComment(PostCommentAddDTO dto);
 
-    void like(Integer postId);
+    PostLikeResultVO toggleLike(Integer postId);
 
     void deleteMine(Integer postId);
+
+    void deleteComment(Integer commentId);
 }
 

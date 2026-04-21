@@ -32,6 +32,24 @@
         <div class="form-group">
           <label class="form-label">
             <svg class="label-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            学习时长（分钟）
+          </label>
+          <input
+            v-model.number="form.studyDurationMinutes"
+            type="number"
+            min="0"
+            max="720"
+            class="form-input"
+            placeholder="0–720，例如 90"
+          />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            <svg class="label-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
               <circle cx="12" cy="10" r="3"></circle>
             </svg>
@@ -145,6 +163,9 @@
             </div>
           </div>
           <div class="record-content">{{ item.content }}</div>
+          <div v-if="item.studyDurationMinutes != null" class="record-duration">
+            ⏱ 学习时长：{{ item.studyDurationMinutes }} 分钟
+          </div>
           <div v-if="item.imageUrl" class="record-image">
             <el-image
               class="record-img"
@@ -162,8 +183,20 @@
 
       <div v-else class="empty-records">
         <div class="empty-icon">📝</div>
-        <h3>暂无打卡记录</h3>
+        <h3>暂无数据</h3>
         <p>开始您的第一次学习打卡吧！</p>
+      </div>
+
+      <div class="list-pagination" v-if="checkPage.total > 0">
+        <el-pagination
+          background
+          small
+          :current-page="checkPage.current"
+          :page-size="checkPage.size"
+          :total="checkPage.total"
+          layout="total, prev, pager, next"
+          @current-change="(p) => { checkPage.current = p; load(); }"
+        />
       </div>
     </div>
 
@@ -186,6 +219,7 @@
 <script setup>
 import { reactive, ref, onMounted, computed, watch } from "vue";
 import request from "@/utils/request";
+import { ElMessageBox } from "element-plus";
 
 const list = ref([]);
 const fileInput = ref(null);
@@ -194,7 +228,8 @@ const previewUrl = ref("");
 const successVisible = ref(false);
 const submitting = ref(false);
 const progress = ref(100);
-const form = reactive({ content: "", location: "" });
+const form = reactive({ content: "", location: "", studyDurationMinutes: 0 });
+const checkPage = ref({ current: 1, size: 10, total: 0 });
 
 // 计算属性
 const canSubmit = computed(() => {
@@ -277,6 +312,7 @@ const submit = async () => {
   const fd = new FormData();
   fd.append("content", form.content.trim());
   fd.append("location", form.location.trim());
+  fd.append("studyDurationMinutes", String(form.studyDurationMinutes ?? 0));
   if (fileRef.value) fd.append("image", fileRef.value);
   
   try {
@@ -299,6 +335,7 @@ const submit = async () => {
     // 清空表单
     form.content = "";
     form.location = "";
+    form.studyDurationMinutes = 0;
     clearFile();
     
     // 重新加载列表
@@ -313,15 +350,35 @@ const submit = async () => {
 const load = async () => {
   try {
     const res = await request.get("/api/student/check/page", { 
-      params: { current: 1, size: 20 } 
+      params: { current: checkPage.value.current, size: checkPage.value.size } 
     });
     list.value = res.data?.records || [];
+    checkPage.value.total = res.data?.total ?? 0;
   } catch (error) {
     console.error("加载失败:", error);
   }
 };
 
-onMounted(load);
+const fetchWarning = async () => {
+  try {
+    const res = await request.get("/api/student/check/warning");
+    const w = res.data;
+    if (w?.weekly?.needsAlert || w?.monthly?.needsAlert) {
+      await ElMessageBox.alert(
+        "本周或本月打卡次数或学习时长未达标，请合理安排学习计划。",
+        "学业提醒",
+        { type: "warning", confirmButtonText: "我知道了" }
+      );
+    }
+  } catch (_) {
+    /* 忽略 */
+  }
+};
+
+onMounted(async () => {
+  await fetchWarning();
+  await load();
+});
 
 // 监听表单内容长度
 watch(() => form.content, (content) => {

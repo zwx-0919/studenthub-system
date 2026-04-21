@@ -8,7 +8,9 @@ import com.it.zwx.studenthub_system.pojo.entity.Post;
 import com.it.zwx.studenthub_system.pojo.entity.PostComment;
 import com.it.zwx.studenthub_system.pojo.entity.Result;
 import com.it.zwx.studenthub_system.pojo.vo.PostDetailVO;
+import com.it.zwx.studenthub_system.pojo.vo.PostLikeResultVO;
 import com.it.zwx.studenthub_system.service.PostService;
+import com.it.zwx.studenthub_system.utils.AliOssUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -18,8 +20,6 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
-import java.io.IOException;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
@@ -38,9 +38,6 @@ public class PostStudentController {
 
     private final PostService postService;
 
-    @Value("${studenthub.upload-dir:uploads}")
-    private String uploadDir;
-
     @PostMapping("/add")
     @Operation(summary = "发布帖子")
     public Result<Post> add(@RequestBody @Validated PostAddDTO dto) {
@@ -48,34 +45,39 @@ public class PostStudentController {
     }
 
     @PostMapping("/upload-image")
-    @Operation(summary = "上传帖子图片")
-    public Result<String> uploadImage(@RequestParam("file") MultipartFile file) throws IOException {
-        if (file == null || file.isEmpty()) {
-            return Result.error("请选择图片文件");
+    @Operation(summary = "上传帖子图片到阿里云OSS")
+    public Result<String> uploadImage(@RequestParam("file") MultipartFile file) {
+        try {// 1. 基础校验
+            if (file == null || file.isEmpty()) {
+                return Result.error("请选择图片文件");
+            }
+            if (file.getSize() > MAX_FILE_SIZE) {
+                return Result.error("图片大小不能超过 5MB");
+            }
+            String contentType = file.getContentType();
+            if (!StringUtils.hasText(contentType) || !ALLOWED_CONTENT_TYPE.contains(contentType.toLowerCase(Locale.ROOT))) {
+                return Result.error("图片格式不合法");
+            }
+            String originalName = file.getOriginalFilename();
+            String suffix = "";
+            if (StringUtils.hasText(originalName) && originalName.contains(".")) {
+                suffix = originalName.substring(originalName.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
+            }
+            if (!ALLOWED_SUFFIX.contains(suffix)) {
+                return Result.error("仅支持 jpg/jpeg/png/webp/gif 图片");
+            }
+            // 2. 生成OSS文件名（避免重复）
+            String fileName = UUID.randomUUID().toString().replace("-", "") + "." + suffix;
+            String objectName = "post/" + fileName;
+            // 3. 调用阿里云OSS工具类上传
+            String imageUrl = AliOssUtils.uploadFile(objectName, file.getInputStream());
+            // 4. 返回OSS的图片访问地址
+            return Result.success(imageUrl);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return Result.error("图片上传失败：" + e.getMessage());
         }
-        if (file.getSize() > MAX_FILE_SIZE) {
-            return Result.error("图片大小不能超过 5MB");
-        }
-        String contentType = file.getContentType();
-        if (!StringUtils.hasText(contentType) || !ALLOWED_CONTENT_TYPE.contains(contentType.toLowerCase(Locale.ROOT))) {
-            return Result.error("图片格式不合法");
-        }
-        String originalName = file.getOriginalFilename();
-        String suffix = "";
-        if (StringUtils.hasText(originalName) && originalName.contains(".")) {
-            suffix = originalName.substring(originalName.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
-        }
-        if (!ALLOWED_SUFFIX.contains(suffix)) {
-            return Result.error("仅支持 jpg/jpeg/png/webp/gif 图片");
-        }
-        File dir = new File(uploadDir);
-        if (!dir.exists() && !dir.mkdirs()) {
-            return Result.error("创建上传目录失败");
-        }
-        String fileName = UUID.randomUUID().toString().replace("-", "") + "." + suffix;
-        File target = new File(dir, fileName);
-        file.transferTo(target);
-        return Result.success("/uploads/" + fileName);
     }
 
     @GetMapping("/page")
@@ -97,9 +99,15 @@ public class PostStudentController {
     }
 
     @PostMapping("/like/{id}")
-    @Operation(summary = "点赞帖子")
-    public Result<Void> like(@PathVariable Integer id) {
-        postService.like(id);
+    @Operation(summary = "点赞/取消点赞帖子")
+    public Result<PostLikeResultVO> like(@PathVariable Integer id) {
+        return Result.success(postService.toggleLike(id));
+    }
+
+    @DeleteMapping("/comment/{id}")
+    @Operation(summary = "删除评论（本人或楼主）")
+    public Result<Void> deleteComment(@PathVariable Integer id) {
+        postService.deleteComment(id);
         return Result.success();
     }
 
@@ -110,4 +118,3 @@ public class PostStudentController {
         return Result.success();
     }
 }
-

@@ -43,7 +43,8 @@ const routes = [
       { path: "notice", component: () => import("@/views/admin/NoticeManage.vue") },
       { path: "courses", component: () => import("@/views/admin/CourseManage.vue") },
       { path: "exams", component: () => import("@/views/admin/ExamManage.vue") },
-      { path: "posts", component: () => import("@/views/admin/PostManage.vue") }
+      { path: "posts", component: () => import("@/views/admin/PostManage.vue") },
+      { path: "stats", component: () => import("@/views/admin/StatsDashboard.vue") }
     ]
   }
 ];

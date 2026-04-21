@@ -15,7 +15,11 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -48,6 +52,56 @@ public class CounselorStudyCheckController {
     public Result<java.util.List<com.it.zwx.studenthub_system.pojo.entity.ClassInfo>> classes() {
         AuthUtil.requireCounselor(AuthUtil.currentUser(userService));
         return Result.success(studyCheckService.listClasses());
+    }
+
+    @GetMapping("/warnings")
+    @Operation(summary = "本周未达标学生预警名单")
+    public Result<List<Map<String, Object>>> warnings() {
+        AuthUtil.requireCounselor(AuthUtil.currentUser(userService));
+        return Result.success(studyCheckService.counselorWarningStudents());
+    }
+
+    @GetMapping("/overview")
+    @Operation(summary = "辅导员端打卡概览（近7日趋势 + 打卡率）")
+    public Result<Map<String, Object>> overview(@ModelAttribute StudyCheckPageDTO dto) {
+        AuthUtil.requireCounselor(AuthUtil.currentUser(userService));
+        Map<String, Object> res = new HashMap<>();
+
+        // 近7日趋势：用 counselorPage 的 counselor_id 范围（Service 内部已限制 counselor_id）
+        Map<String, Object> last7 = new HashMap<>();
+        List<String> labels = new java.util.ArrayList<>();
+        List<Integer> checkCounts = new java.util.ArrayList<>();
+        List<Integer> durationMinutes = new java.util.ArrayList<>();
+        for (int i = 6; i >= 0; i--) {
+            LocalDate day = LocalDate.now().minusDays(i);
+            labels.add(day.toString());
+            LocalDateTime start = day.atStartOfDay();
+            LocalDateTime end = day.atTime(LocalTime.MAX);
+
+            StudyCheckPageDTO d = new StudyCheckPageDTO();
+            d.setCurrent(1);
+            d.setSize(200);
+            d.setClassId(dto.getClassId());
+            d.setStartDate(start);
+            d.setEndDate(end);
+            // counselorPage 会按 counselor_id 过滤，并补齐 studentName/className
+            List<StudyCheck> records = studyCheckService.counselorPage(d).getRecords();
+            checkCounts.add(records == null ? 0 : records.size());
+            int sum = 0;
+            if (records != null) {
+                for (StudyCheck sc : records) {
+                    sum += sc.getStudyDurationMinutes() == null ? 0 : sc.getStudyDurationMinutes();
+                }
+            }
+            durationMinutes.add(sum);
+        }
+        last7.put("labels", labels);
+        last7.put("checkCounts", checkCounts);
+        last7.put("durationMinutes", durationMinutes);
+        res.put("last7Days", last7);
+
+        res.put("checkRate", studyCheckService.classCheckRate(dto.getClassId(), dto.getStartDate(), dto.getEndDate()));
+        return Result.success(res);
     }
 }
 
